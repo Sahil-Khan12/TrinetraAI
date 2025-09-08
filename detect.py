@@ -27,15 +27,18 @@ Usage - formats:
                                  yolov5s_edgetpu.tflite     # TensorFlow Edge TPU
                                  yolov5s_paddle_model       # PaddlePaddle
 """
-
+import cv2
+import time
+import numpy as np
 import argparse
 import csv
 import os
 import platform
 import sys
 from pathlib import Path
-
+import math
 import torch
+from emailService import SendEmail
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -64,7 +67,115 @@ from utils.general import (
     xyxy2xywh,
 )
 from utils.torch_utils import select_device, smart_inference_mode
+import pygame
+import time
+# initialize mixer once at the top of your script
+pygame.mixer.init()
+last_trigger = {1: 0, 2: 0, 3: 0}
+cooldown = {1: 300, 2: 120, 3: 60}  # 5 minutes, 2 minutes, 1 minute
 
+Level1_songs = ["S_1_1.mp3","S_1_2.mp3","S_1_3.mp3","S_1_4.mp3"]                  #  Normal Announcements
+Level2_songs = ["S_2_1.mp3","S_2_2.mp3","S_2_3.mp3","S_2_4.mp3"]                  # Announcements to Reroute & To Maintain a safe   
+Level3_songs = ["S_3_1.mp3","S_3_2.mp3","S_3_3.mp3","S_3_4.mp3"]                  # Announcement to retreat and not recommanded to go this way
+ 
+levels = {
+    1: Level1_songs[:],
+    2: Level2_songs[:],
+    3: Level3_songs[:]
+}
+
+def play_song(index):
+    """Play all songs for a given level"""
+    base_path = str(ROOT)
+    songs = levels[index]
+
+    if not songs:
+        return  # no songs for this level
+
+    # Load and play the first song
+    pygame.mixer.music.load(f"{base_path}\\{songs[0]}")
+    pygame.mixer.music.play()
+
+    # Queue the rest
+    for song in songs[1:]:
+        pygame.mixer.music.queue(f"{base_path}\\{song}")
+
+
+def check_stages(person_count):
+    global last_trigger
+
+    current_time = time.time()
+
+    # Stage 1: 1–4 people
+    if 3 <= person_count < 6 and current_time - last_trigger[1] >= cooldown[1]:
+        play_song(1)
+        last_trigger[1] = current_time
+
+    # Stage 2: 5–9 people
+    if  6 <= person_count < 15 and current_time - last_trigger[2] >= cooldown[2]:
+        play_song(2)
+        SendEmail(
+            subject="⚠ Stage 2 Alert",
+            body=f"{person_count} person(s) detected " "Volunteers are requested to manage the crowd"
+        )
+        last_trigger[2] = current_time
+
+    # Stage 3: 10+ people
+    if person_count >= 15 and current_time - last_trigger[3] >= cooldown[3]:
+        play_song(3)
+        SendEmail(
+            subject="⚠ Stage 3 Alert",
+            body=f"{person_count} person(s) detected (Stage 3)" "All Emergency Teams and Police Services are requested to reach this area for any possible outcome."
+        )
+        last_trigger[3] = current_time
+
+def get_field_area(im_shape, det, names, hfov_deg=78, real_height=1.7):
+    """
+    Dynamically estimates the physical area of the field of view based on detected persons.
+    
+    Args:
+        im_shape (tuple): Shape of the image (height, width, channels).
+        det (tensor): Detection tensor.
+        names (dict): Class names.
+        hfov_deg (float): Assumed horizontal field of view in degrees (default 78 for many webcams).
+        real_height (float): Assumed average real height of a person in meters (default 1.7).
+    
+    Returns:
+        float: Estimated area in square meters, or 0 if no persons detected.
+    """
+    height, width = im_shape[:2]
+    person_heights = []
+    
+    if len(det):
+        for *xyxy, conf, cls in det:
+            c = int(cls)
+            if names[c] == "person":
+                bbox_height = xyxy[3] - xyxy[1]  # in pixels
+                person_heights.append(bbox_height.item())
+    
+    if not person_heights:
+        return 0.0  # No persons to estimate distance
+    
+    avg_height_pixels = sum(person_heights) / len(person_heights)
+    
+    # Compute focal length from assumed HFOV
+    hfov_rad = math.radians(hfov_deg)
+    fx = width / (2 * math.tan(hfov_rad / 2))
+    
+    # Estimate average distance
+    avg_distance = (real_height * fx) / avg_height_pixels
+    
+    # Compute visible width and height at avg_distance
+    tan_half_hfov = math.tan(hfov_rad / 2)
+    visible_width = 2 * avg_distance * tan_half_hfov
+    
+    # Assume square pixels, compute VFOV
+    vfov_rad = 2 * math.atan((height / 2) / fx)
+    tan_half_vfov = math.tan(vfov_rad / 2)
+    visible_height = 2 * avg_distance * tan_half_vfov
+    
+    area = visible_width * visible_height
+    return area
 
 @smart_inference_mode()
 def run(
@@ -97,6 +208,8 @@ def run(
     half=False,  # use FP16 half-precision inference
     dnn=False,  # use OpenCV DNN for ONNX inference
     vid_stride=1,  # video frame-rate stride
+    shared_person_count=None,
+    shared_area=None,
 ):
     """
     Runs YOLOv5 detection inference on various sources like images, videos, directories, streams, etc.
@@ -148,6 +261,9 @@ def run(
         run(source='data/videos/example.mp4', weights='yolov5s.pt', conf_thres=0.4, device='0')
         ```
     """
+    
+    last_action_time = 0  # Track last time email/song triggered
+    cooldown = 300   
     source = str(source)
     save_img = not nosave and not source.endswith(".txt")  # save inference images
     is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
@@ -242,6 +358,7 @@ def run(
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             imc = im0.copy() if save_crop else im0  # for save_crop
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
+            person_count = 0
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
@@ -249,6 +366,13 @@ def run(
                 # Print results
                 for c in det[:, 5].unique():
                     n = (det[:, 5] == c).sum()  # detections per class
+                    class_name = names[int(c)]
+                    if class_name == "person":
+                        person_count = int(n)
+
+                    shared_person_count.value = person_count
+                    print(f"Detected {person_count} person(s)")
+                    check_stages(person_count)
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
                 # Write results
@@ -278,6 +402,15 @@ def run(
                         annotator.box_label(xyxy, label, color=colors(c, True))
                     if save_crop:
                         save_one_box(xyxy, imc, file=save_dir / "crops" / names[c] / f"{p.stem}.jpg", BGR=True)
+            else: 
+                shared_person_count.value=0
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] No detections, set person_count to 0")
+
+            # claculate field area
+            area= get_field_area(im0.shape,det,names)
+            if shared_area is not None:
+                shared_area.value = area
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Estimated field area: {area:.2f} sq.m")
 
             # Stream results
             im0 = annotator.result()
@@ -288,6 +421,19 @@ def run(
                     cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
+
+            #Display Person Count and area
+            cv2.putText(im0, f"Persons: {person_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.putText(im0, f"Area: {area:.2f} sq.m", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            if view_img:
+                if platform.system() == "Linux" and p not in windows:
+                    windows.append(p)
+                    cv2.namedWindow(str(p), cv2.WINDOW_NORMAL)
+                    cv2.WINDOW_KEEPRATIO
+                    cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
+                    cv2.imshow(str(p), im0)
+                    cv2.waitKey(1)  # 1 millisecond
+
 
             # Save results (image with detections)
             if save_img:
@@ -322,6 +468,7 @@ def run(
 
 
 def parse_opt():
+
     """
     Parse command-line arguments for YOLOv5 detection, allowing custom inference options and model configurations.
 
@@ -405,7 +552,6 @@ def parse_opt():
     print_args(vars(opt))
     return opt
 
-
 def main(opt):
     """
     Executes YOLOv5 model inference based on provided command-line arguments, validating dependencies before running.
@@ -436,3 +582,4 @@ def main(opt):
 if __name__ == "__main__":
     opt = parse_opt()
     main(opt)
+

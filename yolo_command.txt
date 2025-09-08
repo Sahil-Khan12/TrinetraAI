@@ -1,0 +1,2 @@
+pip install -r requirements.txt
+python detect.py --weights yolov5s.pt --source http://100.xx.xx.xx:xxxx/video
