@@ -27,17 +27,19 @@ Usage - formats:
                                  yolov5s_edgetpu.tflite     # TensorFlow Edge TPU
                                  yolov5s_paddle_model       # PaddlePaddle
 """
-import cv2
-import time
-import numpy as np
+
 import argparse
 import csv
+import math
 import os
 import platform
 import sys
+import time
 from pathlib import Path
-import math
+
+import cv2
 import torch
+
 from emailService import SendEmail
 
 FILE = Path(__file__).resolve()
@@ -46,6 +48,7 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
+import pygame
 from ultralytics.utils.plotting import Annotator, colors, save_one_box
 
 from models.common import DetectMultiBackend
@@ -67,25 +70,26 @@ from utils.general import (
     xyxy2xywh,
 )
 from utils.torch_utils import select_device, smart_inference_mode
-import pygame
-import time
+
 # initialize mixer once at the top of your script
 pygame.mixer.init()
 last_trigger = {1: 0, 2: 0, 3: 0}
 cooldown = {1: 300, 2: 120, 3: 60}  # 5 minutes, 2 minutes, 1 minute
 
-Level1_songs = ["S_1_1.mp3","S_1_2.mp3","S_1_3.mp3","S_1_4.mp3"]                  #  Normal Announcements
-Level2_songs = ["S_2_1.mp3","S_2_2.mp3","S_2_3.mp3","S_2_4.mp3"]                  # Announcements to Reroute & To Maintain a safe   
-Level3_songs = ["S_3_1.mp3","S_3_2.mp3","S_3_3.mp3","S_3_4.mp3"]                  # Announcement to retreat and not recommanded to go this way
- 
-levels = {
-    1: Level1_songs[:],
-    2: Level2_songs[:],
-    3: Level3_songs[:]
-}
+Level1_songs = ["S_1_1.mp3", "S_1_2.mp3", "S_1_3.mp3", "S_1_4.mp3"]  #  Normal Announcements
+Level2_songs = ["S_2_1.mp3", "S_2_2.mp3", "S_2_3.mp3", "S_2_4.mp3"]  # Announcements to Reroute & To Maintain a safe
+Level3_songs = [
+    "S_3_1.mp3",
+    "S_3_2.mp3",
+    "S_3_3.mp3",
+    "S_3_4.mp3",
+]  # Announcement to retreat and not recommended to go this way
+
+levels = {1: Level1_songs[:], 2: Level2_songs[:], 3: Level3_songs[:]}
+
 
 def play_song(index):
-    """Play all songs for a given level"""
+    """Play all songs for a given level."""
     base_path = str(ROOT)
     songs = levels[index]
 
@@ -112,11 +116,11 @@ def check_stages(person_count):
         last_trigger[1] = current_time
 
     # Stage 2: 5–9 people
-    if  6 <= person_count < 15 and current_time - last_trigger[2] >= cooldown[2]:
+    if 6 <= person_count < 15 and current_time - last_trigger[2] >= cooldown[2]:
         play_song(2)
         SendEmail(
             subject="⚠ Stage 2 Alert",
-            body=f"{person_count} person(s) detected " "Volunteers are requested to manage the crowd"
+            body=f"{person_count} person(s) detected Volunteers are requested to manage the crowd",
         )
         last_trigger[2] = current_time
 
@@ -125,57 +129,59 @@ def check_stages(person_count):
         play_song(3)
         SendEmail(
             subject="⚠ Stage 3 Alert",
-            body=f"{person_count} person(s) detected (Stage 3)" "All Emergency Teams and Police Services are requested to reach this area for any possible outcome."
+            body=f"{person_count} person(s) detected (Stage 3)"
+            "All Emergency Teams and Police Services are requested to reach this area for any possible outcome.",
         )
         last_trigger[3] = current_time
 
+
 def get_field_area(im_shape, det, names, hfov_deg=78, real_height=1.7):
-    """
-    Dynamically estimates the physical area of the field of view based on detected persons.
-    
+    """Dynamically estimates the physical area of the field of view based on detected persons.
+
     Args:
         im_shape (tuple): Shape of the image (height, width, channels).
         det (tensor): Detection tensor.
         names (dict): Class names.
         hfov_deg (float): Assumed horizontal field of view in degrees (default 78 for many webcams).
         real_height (float): Assumed average real height of a person in meters (default 1.7).
-    
+
     Returns:
         float: Estimated area in square meters, or 0 if no persons detected.
     """
     height, width = im_shape[:2]
     person_heights = []
-    
+
     if len(det):
         for *xyxy, conf, cls in det:
             c = int(cls)
             if names[c] == "person":
                 bbox_height = xyxy[3] - xyxy[1]  # in pixels
                 person_heights.append(bbox_height.item())
-    
+
     if not person_heights:
         return 0.0  # No persons to estimate distance
-    
+
     avg_height_pixels = sum(person_heights) / len(person_heights)
-    
+
     # Compute focal length from assumed HFOV
     hfov_rad = math.radians(hfov_deg)
     fx = width / (2 * math.tan(hfov_rad / 2))
-    
+
     # Estimate average distance
     avg_distance = (real_height * fx) / avg_height_pixels
-    
+
     # Compute visible width and height at avg_distance
     tan_half_hfov = math.tan(hfov_rad / 2)
     visible_width = 2 * avg_distance * tan_half_hfov
-    
+
     # Assume square pixels, compute VFOV
     vfov_rad = 2 * math.atan((height / 2) / fx)
     tan_half_vfov = math.tan(vfov_rad / 2)
     visible_height = 2 * avg_distance * tan_half_vfov
-    
+
     area = visible_width * visible_height
     return area
+
 
 @smart_inference_mode()
 def run(
@@ -211,8 +217,7 @@ def run(
     shared_person_count=None,
     shared_area=None,
 ):
-    """
-    Runs YOLOv5 detection inference on various sources like images, videos, directories, streams, etc.
+    """Runs YOLOv5 detection inference on various sources like images, videos, directories, streams, etc.
 
     Args:
         weights (str | Path): Path to the model weights file or a Triton URL. Default is 'yolov5s.pt'.
@@ -223,8 +228,8 @@ def run(
         conf_thres (float): Confidence threshold for detections. Default is 0.25.
         iou_thres (float): Intersection Over Union (IOU) threshold for non-max suppression. Default is 0.45.
         max_det (int): Maximum number of detections per image. Default is 1000.
-        device (str): CUDA device identifier (e.g., '0' or '0,1,2,3') or 'cpu'. Default is an empty string, which uses the
-            best available device.
+        device (str): CUDA device identifier (e.g., '0' or '0,1,2,3') or 'cpu'. Default is an empty string, which uses
+            the best available device.
         view_img (bool): If True, display inference results using OpenCV. Default is False.
         save_txt (bool): If True, save results in a text file. Default is False.
         save_csv (bool): If True, save results in a CSV file. Default is False.
@@ -238,8 +243,8 @@ def run(
         update (bool): If True, update all models' weights. Default is False.
         project (str | Path): Directory to save results. Default is 'runs/detect'.
         name (str): Name of the current experiment; used to create a subdirectory within 'project'. Default is 'exp'.
-        exist_ok (bool): If True, existing directories with the same name are reused instead of being incremented. Default is
-            False.
+        exist_ok (bool): If True, existing directories with the same name are reused instead of being incremented.
+            Default is False.
         line_thickness (int): Thickness of bounding box lines in pixels. Default is 3.
         hide_labels (bool): If True, do not display labels on bounding boxes. Default is False.
         hide_conf (bool): If True, do not display confidence scores on bounding boxes. Default is False.
@@ -261,9 +266,6 @@ def run(
         run(source='data/videos/example.mp4', weights='yolov5s.pt', conf_thres=0.4, device='0')
         ```
     """
-    
-    last_action_time = 0  # Track last time email/song triggered
-    cooldown = 300   
     source = str(source)
     save_img = not nosave and not source.endswith(".txt")  # save inference images
     is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
@@ -402,12 +404,12 @@ def run(
                         annotator.box_label(xyxy, label, color=colors(c, True))
                     if save_crop:
                         save_one_box(xyxy, imc, file=save_dir / "crops" / names[c] / f"{p.stem}.jpg", BGR=True)
-            else: 
-                shared_person_count.value=0
+            else:
+                shared_person_count.value = 0
                 print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] No detections, set person_count to 0")
 
-            # claculate field area
-            area= get_field_area(im0.shape,det,names)
+            # calculate field area
+            area = get_field_area(im0.shape, det, names)
             if shared_area is not None:
                 shared_area.value = area
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Estimated field area: {area:.2f} sq.m")
@@ -422,7 +424,7 @@ def run(
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
 
-            #Display Person Count and area
+            # Display Person Count and area
             cv2.putText(im0, f"Persons: {person_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             cv2.putText(im0, f"Area: {area:.2f} sq.m", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             if view_img:
@@ -433,7 +435,6 @@ def run(
                     cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
                     cv2.imshow(str(p), im0)
                     cv2.waitKey(1)  # 1 millisecond
-
 
             # Save results (image with detections)
             if save_img:
@@ -468,9 +469,7 @@ def run(
 
 
 def parse_opt():
-
-    """
-    Parse command-line arguments for YOLOv5 detection, allowing custom inference options and model configurations.
+    """Parse command-line arguments for YOLOv5 detection, allowing custom inference options and model configurations.
 
     Args:
         --weights (str | list[str], optional): Model path or Triton URL. Defaults to ROOT / 'yolov5s.pt'.
@@ -487,7 +486,8 @@ def parse_opt():
         --save-conf (bool, optional): Flag to save confidences in labels saved via --save-txt. Defaults to False.
         --save-crop (bool, optional): Flag to save cropped prediction boxes. Defaults to False.
         --nosave (bool, optional): Flag to prevent saving images/videos. Defaults to False.
-        --classes (list[int], optional): List of classes to filter results by, e.g., '--classes 0 2 3'. Defaults to None.
+        --classes (list[int], optional): List of classes to filter results by, e.g., '--classes 0 2 3'. Defaults to
+            None.
         --agnostic-nms (bool, optional): Flag for class-agnostic NMS. Defaults to False.
         --augment (bool, optional): Flag for augmented inference. Defaults to False.
         --visualize (bool, optional): Flag for visualizing features. Defaults to False.
@@ -506,7 +506,7 @@ def parse_opt():
     Returns:
         argparse.Namespace: Parsed command-line arguments as an argparse.Namespace object.
 
-    Example:
+    Examples:
         ```python
         from ultralytics import YOLOv5
         args = YOLOv5.parse_opt()
@@ -552,9 +552,9 @@ def parse_opt():
     print_args(vars(opt))
     return opt
 
+
 def main(opt):
-    """
-    Executes YOLOv5 model inference based on provided command-line arguments, validating dependencies before running.
+    """Executes YOLOv5 model inference based on provided command-line arguments, validating dependencies before running.
 
     Args:
         opt (argparse.Namespace): Command-line arguments for YOLOv5 detection. See function `parse_opt` for details.
@@ -562,7 +562,7 @@ def main(opt):
     Returns:
         None
 
-    Note:
+    Notes:
         This function performs essential pre-execution checks and initiates the YOLOv5 detection process based on user-specified
         options. Refer to the usage guide and examples for more information about different sources and formats at:
         https://github.com/ultralytics/ultralytics
@@ -582,4 +582,3 @@ def main(opt):
 if __name__ == "__main__":
     opt = parse_opt()
     main(opt)
-
