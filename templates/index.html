@@ -1,173 +1,193 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Person Detection Dashboard</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f4f4;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-height: 100vh;
-            overflow: hidden;
-        }
-        header {
-            background-color: #2c3e50;
-            color: white;
-            width: 100%;
-            text-align: center;
-            padding: .5rem;
-        }
-        .container {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 40px;
-            padding: 20px;
-            max-width: 1200px;
-        }
-        .card {
-            background-color: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            padding: 42px 20px;
-            width: 300px;
-            text-align: center;
-            transition: transform 0.2s;
-        }
-        .card:hover {
-            transform: translateY(-5px);
-        }
-        .person-card { background-color: #3498db; color: white; }
-        .density-card { background-color: #2ecc71; color: white; }
-        .level-card { background-color: #e74c3c; color: white; }
-        .offline-card { background-color: #7f8c8d; color: white; }
-        h2 {
-            margin: 0 0 10px;
-            font-size: 1.5em;
-        }
-        p {
-            margin: 0;
-            font-size: 1.2em;
-        }
-        .error {
-            color: #e74c3c;
-            font-weight: bold;
-        }
-        footer {
-            position: sticky;
-            bottom:0px;
-            background-color: #2c3e50;
-            color: white;
-            width: 100%;
-            text-align: center;
-        }
-        *{
-            overflow: hidden;
-        }
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f4;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-height: 100vh;
+        overflow: hidden;
+      }
+      header {
+        background-color: #2c3e50;
+        color: white;
+        width: 100%;
+        text-align: center;
+        padding: 0.5rem;
+      }
+      .container {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 40px;
+        padding: 20px;
+        max-width: 1200px;
+      }
+      .card {
+        background-color: white;
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        padding: 42px 20px;
+        width: 300px;
+        text-align: center;
+        transition: transform 0.2s;
+      }
+      .card:hover {
+        transform: translateY(-5px);
+      }
+      .person-card {
+        background-color: #3498db;
+        color: white;
+      }
+      .density-card {
+        background-color: #2ecc71;
+        color: white;
+      }
+      .level-card {
+        background-color: #e74c3c;
+        color: white;
+      }
+      .offline-card {
+        background-color: #7f8c8d;
+        color: white;
+      }
+      h2 {
+        margin: 0 0 10px;
+        font-size: 1.5em;
+      }
+      p {
+        margin: 0;
+        font-size: 1.2em;
+      }
+      .error {
+        color: #e74c3c;
+        font-weight: bold;
+      }
+      footer {
+        position: sticky;
+        bottom: 0px;
+        background-color: #2c3e50;
+        color: white;
+        width: 100%;
+        text-align: center;
+      }
+      * {
+        overflow: hidden;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <header>
-        <h1>Person Detection Dashboard</h1>
+      <h1>Person Detection Dashboard</h1>
     </header>
     <div class="container">
-        <div class="card person-card" id="personCard">
-            <h2>Detected People</h2>
-            <p id="count">Loading...</p>
-        </div>
-        <div class="card density-card" id="densityCard">
-            <h2>Density (persons/sq.m)</h2>
-            <p id="densityText">Loading...</p>
-        </div>
-        <div class="card level-card" id="levelCard">
-            <h2>Current Level</h2>
-            <p id="level">Loading...</p>
-        </div>
+      <div class="card person-card" id="personCard">
+        <h2>Detected People</h2>
+        <p id="count">Loading...</p>
+      </div>
+      <div class="card density-card" id="densityCard">
+        <h2>Density (persons/sq.m)</h2>
+        <p id="densityText">Loading...</p>
+      </div>
+      <div class="card level-card" id="levelCard">
+        <h2>Current Level</h2>
+        <p id="level">Loading...</p>
+      </div>
     </div>
     <footer>
-        <h3>@Trinetra AI</h3>
+      <h3>@Trinetra AI</h3>
     </footer>
 
     <script>
-        async function fetchPersonCount() {
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 2000); // 2-second timeout
+      async function fetchPersonCount() {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2000); // 2-second timeout
 
-                const response = await fetch('http://192.168.80.153:5000/person_count', {
-                    cache: 'no-store',
-                    headers: { 'Cache-Control': 'no-cache' },
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId); // Clear timeout if successful
+          const response = await fetch(
+            "http://192.168.80.153:5000/person_count",
+            {
+              cache: "no-store",
+              headers: { "Cache-Control": "no-cache" },
+              signal: controller.signal,
+            },
+          );
+          clearTimeout(timeoutId); // Clear timeout if successful
 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                const data = await response.json();
-                const personCount = Number(data.person_count) || 0;
-                const area = Number(data.area) > 0 ? Number(data.area) : 1;
-                const density = (personCount / area).toFixed(2);
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const data = await response.json();
+          const personCount = Number(data.person_count) || 0;
+          const area = Number(data.area) > 0 ? Number(data.area) : 1;
+          const density = (personCount / area).toFixed(2);
 
-                // Update person count
-                const countElement = document.getElementById('count');
-                countElement.innerText = personCount;
-                countElement.parentElement.className = 'card person-card';
+          // Update person count
+          const countElement = document.getElementById("count");
+          countElement.innerText = personCount;
+          countElement.parentElement.className = "card person-card";
 
-                // Update density
-                const densityTextElement = document.getElementById('densityText');
-                densityTextElement.innerText = density;
-                densityTextElement.parentElement.className = 'card density-card';
+          // Update density
+          const densityTextElement = document.getElementById("densityText");
+          densityTextElement.innerText = density;
+          densityTextElement.parentElement.className = "card density-card";
 
-                // Update level
-                const levelElement = document.getElementById('level');
-                const levelCard = document.getElementById('levelCard');
-                levelCard.className = 'card level-card';
-                if (personCount >= 15) {
-                    levelElement.innerText = 'Level 3';
-                } else if (personCount >= 6) {
-                    levelElement.innerText = 'Level 2';
-                } else if (personCount >= 3) {
-                    levelElement.innerText = 'Level 1';
-                } else {
-                    levelElement.innerText = 'None';
-                }
+          // Update level
+          const levelElement = document.getElementById("level");
+          const levelCard = document.getElementById("levelCard");
+          levelCard.className = "card level-card";
+          if (personCount >= 15) {
+            levelElement.innerText = "Level 3";
+          } else if (personCount >= 6) {
+            levelElement.innerText = "Level 2";
+          } else if (personCount >= 3) {
+            levelElement.innerText = "Level 1";
+          } else {
+            levelElement.innerText = "None";
+          }
 
-                console.log(`[${new Date().toISOString()}] Updated: personCount=${personCount}, density=${density}, area=${area}`);
-            } catch (error) {
-                console.error(`[${new Date().toISOString()}] Error fetching data:`, error);
-                const countElement = document.getElementById('count');
-                countElement.innerText = 'N/A';
-                countElement.parentElement.className = 'card offline-card';
-                const densityTextElement = document.getElementById('densityText');
-                densityTextElement.innerText = 'N/A';
-                densityTextElement.parentElement.className = 'card offline-card';
-                const levelElement = document.getElementById('level');
-                levelElement.innerText = 'Offline';
-                document.getElementById('levelCard').className = 'card offline-card';
-            }
+          console.log(
+            `[${new Date().toISOString()}] Updated: personCount=${personCount}, density=${density}, area=${area}`,
+          );
+        } catch (error) {
+          console.error(
+            `[${new Date().toISOString()}] Error fetching data:`,
+            error,
+          );
+          const countElement = document.getElementById("count");
+          countElement.innerText = "N/A";
+          countElement.parentElement.className = "card offline-card";
+          const densityTextElement = document.getElementById("densityText");
+          densityTextElement.innerText = "N/A";
+          densityTextElement.parentElement.className = "card offline-card";
+          const levelElement = document.getElementById("level");
+          levelElement.innerText = "Offline";
+          document.getElementById("levelCard").className = "card offline-card";
         }
+      }
 
-        // Start polling and handle page unload
-        function startPolling() {
-            fetchPersonCount(); // Initial call
-            const intervalId = setInterval(fetchPersonCount, 500);
+      // Start polling and handle page unload
+      function startPolling() {
+        fetchPersonCount(); // Initial call
+        const intervalId = setInterval(fetchPersonCount, 500);
 
-            // Cleanup on page unload
-            window.addEventListener('unload', () => {
-                clearInterval(intervalId);
-                console.log('Polling stopped due to page unload');
-            });
-        }
+        // Cleanup on page unload
+        window.addEventListener("unload", () => {
+          clearInterval(intervalId);
+          console.log("Polling stopped due to page unload");
+        });
+      }
 
-        // Start polling when the page loads
-        window.addEventListener('load', startPolling);
+      // Start polling when the page loads
+      window.addEventListener("load", startPolling);
     </script>
-</body>
+  </body>
 </html>
